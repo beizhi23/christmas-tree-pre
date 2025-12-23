@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>送给宝宝的梦幻3D圣诞树</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: linear-gradient(135deg, #050517, #1a1a3e, #2a2a5e);
+        }
+
+        #scene-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #loading-tip {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 18px;
+            text-shadow: 0 0 10px #ff69b4, 0 0 20px #00bfff;
+            z-index: 999;
+            transition: opacity 1s ease;
+            text-align: center;
+            width: 80%;
+        }
+
+        #photo-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(8px);
+        }
+
+        #preview-img {
+            max-width: 80%;
+            max-height: 80%;
+            border: 4px solid #fff;
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.8);
+        }
+
+        #close-modal {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: #fff;
+            font-size: 40px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-shadow: 0 0 10px #ff4444;
+        }
+
+        #close-modal:hover {
+            color: #ff69b4;
+            transform: scale(1.2);
+        }
+
+        #toggle-tree {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            background: rgba(0, 0, 0, 0.4);
+            color: #fff;
+            border: 2px solid #ff69b4;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 14px;
+            text-shadow: 0 0 5px #00bfff;
+            backdrop-filter: blur(8px);
+            transition: all 0.3s ease;
+            z-index: 998;
+            outline: none;
+        }
+
+        #toggle-tree:hover {
+            background: rgba(255, 105, 180, 0.2);
+            transform: scale(1.08);
+            box-shadow: 0 0 15px rgba(255, 105, 180, 0.8);
+        }
+
+        @media (max-width: 768px) {
+            #toggle-tree {
+                padding: 10px 20px;
+                font-size: 12px;
+                bottom: 15px;
+                right: 15px;
+            }
+            #loading-tip {
+                font-size: 16px;
+            }
+            #close-modal {
+                font-size: 30px;
+                top: 15px;
+                right: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-tip">正在加载梦幻圣诞树...</div>
+    <div id="scene-container"></div>
+    <div id="photo-modal">
+        <span id="close-modal">&times;</span>
+        <img id="preview-img" src="" alt="预览照片">
+    </div>
+    <button id="toggle-tree">让圣诞树散开</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
+
+    <script>
+        let scene, camera, renderer, raycaster, mouse;
+        let christmasTree = null;
+        let leaves = [];
+        let snowflakes = [];
+        let stars = [];
+        let lights = [];
+        let selectedLeaf = null;
+        const LEAF_COUNT = 80;
+        const TREE_HEIGHT = 10;
+        const SNOW_COUNT = 200;
+        const STAR_COUNT = 800;
+        let isLoaded = false;
+        let isPaused = false;
+        let leafTextures = [];
+        // 本地图片路径（将图片和HTML放同一文件夹即可）
+        const IMAGE_PATHS = [
+            "1.jpg",
+            "2.jpg",
+            "3.jpg",
+            "4.jpg",
+            "5.jpg",
+            "6.jpg",
+            "7.jpg",
+            "8.jpg"
+        ];
+        // 备用图片（无防盗链，本地无图片时自动使用）
+        const BACKUP_IMAGE_PATHS = [
+<!--            "https://picsum.photos/800/800?random=1",-->
+<!--            "https://picsum.photos/800/800?random=2",-->
+<!--            "https://picsum.photos/800/800?random=3",-->
+<!--            "https://picsum.photos/800/800?random=4",-->
+<!--            "https://picsum.photos/800/800?random=5",-->
+<!--            "https://picsum.photos/800/800?random=6",-->
+<!--            "https://picsum.photos/800/800?random=7",-->
+<!--            "https://picsum.photos/800/800?random=8"-->
+        ];
+        let isTreeState = true;
+
+        // 初始化
+        function init() {
+            try {
+                // 适配本地file协议加载图片
+                loadImages(() => {
+                    scene = new THREE.Scene();
+                    scene.fog = new THREE.FogExp2(0x1a1a3e, 0.02);
+
+                    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                    camera.position.set(0, 8, 20);
+                    camera.lookAt(0, 2, 0);
+
+                    renderer = new THREE.WebGLRenderer({
+                        antialias: true,
+                        alpha: false,
+                        powerPreference: "high-performance"
+                    });
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                    renderer.setClearColor(0x050517);
+                    renderer.shadowMap.enabled = true;
+                    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                    renderer.outputEncoding = THREE.sRGBEncoding;
+                    document.getElementById('scene-container').appendChild(renderer.domElement);
+
+                    addLights();
+                    createStars();
+                    createSnowflakes();
+                    createChristmasTree();
+
+                    raycaster = new THREE.Raycaster();
+                    mouse = new THREE.Vector2();
+
+                    bindEvents();
+
+                    isLoaded = true;
+                    document.getElementById('loading-tip').textContent = "点击圣诞树开启梦幻之旅～";
+                    setTimeout(() => {
+                        document.getElementById('loading-tip').style.opacity = 0;
+                    }, 2000);
+
+                    animate();
+                });
+            } catch (e) {
+                document.getElementById('loading-tip').textContent = "加载失败：" + e.message + "，请刷新页面";
+                console.error("初始化失败：", e);
+            }
+        }
+
+        // 适配本地加载的图片加载逻辑
+        function loadImages(onComplete) {
+            let loadedCount = 0;
+            const totalCount = IMAGE_PATHS.length;
+            document.getElementById('loading-tip').textContent = "正在加载照片纹理...";
+
+            // 优先加载本地图片，失败则用备用图
+            IMAGE_PATHS.forEach((url, index) => {
+                // 本地file协议下直接创建图片
+                const img = new Image();
+                // 允许跨域（适配远程图片）
+                img.crossOrigin = 'anonymous';
+
+                // 超时处理
+                const timeout = setTimeout(() => {
+                    console.warn(`本地图片${url}加载超时，使用备用图`);
+                    loadBackupImage(index);
+                }, 5000);
+
+                img.onload = () => {
+                    clearTimeout(timeout);
+                    const texture = new THREE.Texture(img);
+                    texture.needsUpdate = true;
+                    texture.wrapS = THREE.ClampToEdgeWrapping;
+                    texture.wrapT = THREE.ClampToEdgeWrapping;
+                    texture.minFilter = THREE.LinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+                    leafTextures[index] = texture;
+                    loadedCount++;
+                    checkComplete();
+                };
+
+                img.onerror = () => {
+                    clearTimeout(timeout);
+                    console.warn(`本地图片${url}加载失败，使用备用图`);
+                    loadBackupImage(index);
+                };
+
+                // 本地路径直接赋值
+                img.src = url;
+            });
+
+            // 加载备用图片
+            function loadBackupImage(index) {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    const texture = new THREE.Texture(img);
+                    texture.needsUpdate = true;
+                    texture.wrapS = THREE.ClampToEdgeWrapping;
+                    texture.wrapT = THREE.ClampToEdgeWrapping;
+                    texture.minFilter = THREE.LinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+                    leafTextures[index] = texture;
+                    loadedCount++;
+                    checkComplete();
+                };
+                img.onerror = () => {
+                    // 终极兜底：纯色纹理
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512;
+                    canvas.height = 512;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = `hsl(${index * 45}, 80%, 60%)`;
+                    ctx.fillRect(0, 0, 512, 512);
+                    const texture = new THREE.CanvasTexture(canvas);
+                    leafTextures[index] = texture;
+                    loadedCount++;
+                    checkComplete();
+                };
+                img.src = BACKUP_IMAGE_PATHS[index % BACKUP_IMAGE_PATHS.length];
+            }
+
+            // 检查是否全部加载完成
+            function checkComplete() {
+                const percent = Math.round((loadedCount / totalCount) * 100);
+                document.getElementById('loading-tip').textContent = `加载照片：${percent}%`;
+                if (loadedCount === totalCount) {
+                    onComplete();
+                }
+            }
+        }
+
+        // 添加灯光
+        function addLights() {
+            const ambientLight = new THREE.AmbientLight(0x663399, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xfff8e7, 1.0);
+            directionalLight.position.set(12, 18, 15);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+
+            const pinkLight = new THREE.PointLight(0xff69b4, 0.8, 30);
+            pinkLight.position.set(8, 10, 8);
+            scene.add(pinkLight);
+
+            const blueLight = new THREE.PointLight(0x00bfff, 0.8, 30);
+            blueLight.position.set(-8, 10, -8);
+            scene.add(blueLight);
+
+            const treeLight = new THREE.PointLight(0x90EE90, 1.5, 25);
+            treeLight.position.set(0, 3, 0);
+            scene.add(treeLight);
+        }
+
+        // 创建星空
+        function createStars() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.15,
+                sizeAttenuation: true,
+                transparent: true,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            const starPositions = [];
+            for (let i = 0; i < STAR_COUNT; i++) {
+                const x = (Math.random() - 0.5) * 200;
+                const y = (Math.random() - 0.5) * 200;
+                const z = (Math.random() - 0.5) * 200;
+                starPositions.push(x, y, z);
+            }
+
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+            const starField = new THREE.Points(starGeometry, starMaterial);
+            scene.add(starField);
+            stars.push(starField);
+
+            gsap.to(starField.rotation, {
+                y: Math.PI * 2,
+                duration: 200,
+                repeat: -1,
+                ease: "none"
+            });
+        }
+
+        // 创建雪花
+        function createSnowflakes() {
+            const snowGeometry = new THREE.PlaneGeometry(0.5, 0.5);
+            const snowMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+
+            for (let i = 0; i < SNOW_COUNT; i++) {
+                const snowflake = new THREE.Mesh(snowGeometry, snowMaterial);
+                snowflake.position.set(
+                    (Math.random() - 0.5) * 50,
+                    Math.random() * 30,
+                    (Math.random() - 0.5) * 50
+                );
+                snowflake.rotation.z = Math.random() * Math.PI * 2;
+                snowflake.userData.speed = Math.random() * 0.02 + 0.005;
+                snowflake.userData.sway = Math.random() * 0.02;
+
+                scene.add(snowflake);
+                snowflakes.push(snowflake);
+            }
+        }
+
+        // 创建圣诞树
+        function createChristmasTree() {
+            christmasTree = new THREE.Group();
+
+            // 树干
+            const trunkGeometry = new THREE.CylinderGeometry(1, 1.4, 3, 16);
+            const trunkMaterial = new THREE.MeshPhongMaterial({
+                color: 0x8B4513,
+                shininess: 10,
+                bumpScale: 0.1
+            });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 0;
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            christmasTree.add(trunk);
+
+            // 树冠
+            for (let i = 0; i < 4; i++) {
+                const coneHeight = (TREE_HEIGHT - 3) / 3 * 1.5;
+                const coneGeometry = new THREE.ConeGeometry(
+                    (coneHeight / 3) * (4 - i) * 1.1,
+                    coneHeight,
+                    32
+                );
+                const coneMaterial = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color(
+                        0.1 + (0.1 * i),
+                        0.6 + (0.1 * (3 - i)),
+                        0.1 + (0.1 * i)
+                    ),
+                    shininess: 80,
+                    emissive: new THREE.Color(0.1, 0.2, 0.1),
+                    emissiveIntensity: 0.3,
+                    blending: THREE.AdditiveBlending
+                });
+                const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+                cone.position.y = 1 + (i * (coneHeight / 2));
+                cone.castShadow = true;
+                cone.receiveShadow = true;
+                christmasTree.add(cone);
+            }
+
+            // 顶部星星
+            const starGeometry = new THREE.SphereGeometry(0.8, 16, 16);
+            const starMaterial = new THREE.MeshPhongMaterial({
+                color: 0xffff00,
+                emissive: 0xffff00,
+                emissiveIntensity: 1.2,
+                shininess: 100,
+                blending: THREE.AdditiveBlending
+            });
+            const star = new THREE.Mesh(starGeometry, starMaterial);
+            star.position.y = TREE_HEIGHT - 1;
+            christmasTree.add(star);
+
+            // 星星呼吸动画
+            gsap.to(star.material.emissiveIntensity, {
+                value: 1.8,
+                duration: 2,
+                repeat: -1,
+                yoyo: true,
+                ease: "power1.inOut"
+            });
+
+            // 彩色装饰球
+            for (let i = 0; i < 50; i++) {
+                const ballSize = Math.random() * 0.5 + 0.3;
+                const ballGeometry = new THREE.SphereGeometry(ballSize, 16, 16);
+                const ballMaterial = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                    emissive: new THREE.Color(Math.random() * 0.3, Math.random() * 0.3, Math.random() * 0.3),
+                    emissiveIntensity: 0.8,
+                    shininess: 100,
+                    blending: THREE.AdditiveBlending
+                });
+                const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * (TREE_HEIGHT / 2);
+                const y = 1 + Math.random() * (TREE_HEIGHT - 2);
+
+                ball.position.set(
+                    Math.cos(angle) * radius * 0.7,
+                    y,
+                    Math.sin(angle) * radius * 0.7
+                );
+
+                christmasTree.add(ball);
+
+                gsap.to(ball.rotation, {
+                    x: Math.PI * 2,
+                    duration: 10 + Math.random() * 5,
+                    repeat: -1,
+                    ease: "none"
+                });
+                gsap.to(ball.material.emissiveIntensity, {
+                    value: Math.random() * 1 + 0.5,
+                    duration: 1.5 + Math.random(),
+                    repeat: -1,
+                    yoyo: true
+                });
+            }
+
+            // 彩灯串
+            for (let i = 0; i < 80; i++) {
+                const lightGeometry = new THREE.SphereGeometry(0.15, 8, 8);
+                const lightMaterial = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                    emissive: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                    emissiveIntensity: 1.5,
+                    blending: THREE.AdditiveBlending
+                });
+                const light = new THREE.Mesh(lightGeometry, lightMaterial);
+
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * (TREE_HEIGHT / 2);
+                const y = -TREE_HEIGHT / 3 + Math.random() * TREE_HEIGHT;
+
+                light.position.set(
+                    Math.cos(angle) * radius,
+                    y,
+                    Math.sin(angle) * radius
+                );
+
+                christmasTree.add(light);
+                lights.push(light);
+
+                gsap.to(light.material.emissiveIntensity, {
+                    value: Math.random() * 2 + 0.5,
+                    duration: 1 + Math.random(),
+                    repeat: -1,
+                    yoyo: true,
+                    ease: "power1.inOut"
+                });
+            }
+
+            christmasTree.position.y = 0;
+            scene.add(christmasTree);
+
+            // 圣诞树动画
+            gsap.to(christmasTree.position, {
+                y: 0.5,
+                duration: 5,
+                repeat: -1,
+                yoyo: true,
+                ease: "power1.inOut"
+            });
+            gsap.to(christmasTree.rotation, {
+                y: Math.PI * 2,
+                duration: 60,
+                repeat: -1,
+                ease: "none"
+            });
+        }
+
+        // 散开成照片叶子
+        function createLeaves() {
+            if (christmasTree) {
+                scene.remove(christmasTree);
+                christmasTree = null;
+            }
+
+            leaves.forEach(leaf => {
+                scene.remove(leaf);
+                if (leaf.geometry) leaf.geometry.dispose();
+                if (leaf.material) leaf.material.dispose();
+            });
+            leaves = [];
+
+            for (let i = 0; i < LEAF_COUNT; i++) {
+                const leafGeometry = new THREE.PlaneGeometry(2, 2, 1);
+                const textureIndex = Math.floor(Math.random() * leafTextures.length);
+                const targetTexture = leafTextures[textureIndex] || leafTextures[0];
+
+                const leafMaterial = new THREE.MeshPhongMaterial({
+                    map: targetTexture,
+                    side: THREE.DoubleSide,
+                    shininess: 80,
+                    transparent: true,
+                    opacity: 0.95,
+                    emissive: new THREE.Color(Math.random() * 0.4, Math.random() * 0.4, Math.random() * 0.4),
+                    emissiveIntensity: 0.5,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
+                leaf.position.set(0, 2, 0);
+                leaf.rotation.set(
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI
+                );
+                leaf.scale.set(0.1, 0.1, 0.1);
+
+                const targetPos = new THREE.Vector3(
+                    (Math.random() - 0.5) * 25,
+                    (Math.random() - 0.5) * 20,
+                    (Math.random() - 0.5) * 25
+                );
+                const targetScale = Math.random() * 1 + 0.5;
+
+                leaf.userData = {
+                    targetPos: targetPos,
+                    targetScale: targetScale,
+                    originalPos: targetPos.clone(),
+                    originalRot: leaf.rotation.clone(),
+                    originalScale: new THREE.Vector3(targetScale, targetScale, targetScale),
+                    texture: targetTexture,
+                    isClicked: false,
+                    animateId: null
+                };
+
+                scene.add(leaf);
+                leaves.push(leaf);
+
+                // 扩散动画
+                gsap.to(leaf.position, {
+                    x: targetPos.x,
+                    y: targetPos.y,
+                    z: targetPos.z,
+                    duration: 2 + Math.random(),
+                    delay: i * 0.01,
+                    ease: "back.out(1.2)"
+                });
+                gsap.to(leaf.scale, {
+                    x: targetScale,
+                    y: targetScale,
+                    z: targetScale,
+                    duration: 2 + Math.random(),
+                    delay: i * 0.01,
+                    ease: "back.out(1.2)"
+                });
+
+                // 旋转+呼吸动画
+                const rotateAnim = gsap.to(leaf.rotation, {
+                    z: Math.PI * 2,
+                    duration: 10 + Math.random() * 5,
+                    repeat: -1,
+                    ease: "none"
+                });
+                const glowAnim = gsap.to(leaf.material.emissiveIntensity, {
+                    value: Math.random() * 1 + 0.5,
+                    duration: 2 + Math.random(),
+                    repeat: -1,
+                    yoyo: true
+                });
+
+                leaf.userData.animateId = [rotateAnim, glowAnim];
+            }
+
+            isTreeState = false;
+            document.getElementById('toggle-tree').textContent = "回到圣诞树";
+        }
+
+        // 恢复圣诞树
+        function resetToChristmasTree() {
+            leaves.forEach(leaf => {
+                if (leaf.userData.animateId) {
+                    leaf.userData.animateId.forEach(anim => anim.kill());
+                }
+                scene.remove(leaf);
+                if (leaf.geometry) leaf.geometry.dispose();
+                if (leaf.material) leaf.material.dispose();
+            });
+            leaves = [];
+
+            document.getElementById('photo-modal').style.display = 'none';
+            selectedLeaf = null;
+            isPaused = false;
+
+            createChristmasTree();
+
+            document.getElementById('loading-tip').textContent = "圣诞树已恢复 ✨";
+            document.getElementById('loading-tip').style.opacity = 1;
+            setTimeout(() => {
+                document.getElementById('loading-tip').style.opacity = 0;
+            }, 2000);
+
+            isTreeState = true;
+            document.getElementById('toggle-tree').textContent = "让圣诞树散开";
+        }
+
+        // 绑定事件
+        function bindEvents() {
+            window.addEventListener('click', onMouseClick);
+            window.addEventListener('resize', onWindowResize);
+
+            document.getElementById('toggle-tree').addEventListener('click', () => {
+                if (isTreeState) {
+                    createLeaves();
+                } else {
+                    resetToChristmasTree();
+                }
+            });
+
+            document.getElementById('close-modal').addEventListener('click', () => {
+                document.getElementById('photo-modal').style.display = 'none';
+                isPaused = false;
+                if (selectedLeaf) {
+                    gsap.to(selectedLeaf.position, {
+                        x: selectedLeaf.userData.originalPos.x,
+                        y: selectedLeaf.userData.originalPos.y,
+                        z: selectedLeaf.userData.originalPos.z,
+                        duration: 0.8,
+                        ease: "power2.out"
+                    });
+                    gsap.to(selectedLeaf.scale, {
+                        x: selectedLeaf.userData.originalScale.x,
+                        y: selectedLeaf.userData.originalScale.y,
+                        z: selectedLeaf.userData.originalScale.z,
+                        duration: 0.8,
+                        ease: "power2.out"
+                    });
+                    gsap.to(selectedLeaf.rotation, {
+                        x: selectedLeaf.userData.originalRot.x,
+                        y: selectedLeaf.userData.originalRot.y,
+                        z: selectedLeaf.userData.originalRot.z,
+                        duration: 0.8,
+                        ease: "power2.out"
+                    });
+                    gsap.to(selectedLeaf.material.emissiveIntensity, {
+                        value: 0.5,
+                        duration: 0.5
+                    });
+                    if (selectedLeaf.userData.animateId) {
+                        selectedLeaf.userData.animateId.forEach(anim => anim.resume());
+                    }
+                    selectedLeaf = null;
+                }
+            });
+
+            // 移动端触摸支持
+            window.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const clickEvent = new MouseEvent('click', {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                });
+                window.dispatchEvent(clickEvent);
+            }, { passive: false });
+        }
+
+        // 点击事件处理
+        function onMouseClick(event) {
+            if (!isLoaded) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            if (isTreeState) {
+                const intersects = raycaster.intersectObject(christmasTree, true);
+                if (intersects.length > 0) {
+                    document.getElementById('loading-tip').style.opacity = 0;
+                    createLeaves();
+                    return;
+                }
+            } else {
+                const intersects = raycaster.intersectObjects(leaves);
+                if (intersects.length > 0) {
+                    selectedLeaf = intersects[0].object;
+                    isPaused = true;
+
+                    if (selectedLeaf.userData.animateId) {
+                        selectedLeaf.userData.animateId.forEach(anim => anim.pause());
+                    }
+
+                    gsap.to(selectedLeaf.position, {
+                        x: 0,
+                        y: 0,
+                        z: -5,
+                        duration: 0.8,
+                        ease: "power2.out"
+                    });
+                    gsap.to(selectedLeaf.scale, {
+                        x: 8,
+                        y: 8,
+                        z: 8,
+                        duration: 0.8,
+                        ease: "power2.out"
+                    });
+                    gsap.to(selectedLeaf.rotation, {
+                        x: 0,
+                        y: 0,
+                        z: 0,
+                        duration: 0.8,
+                        ease: "power2.out"
+                    });
+                    gsap.to(selectedLeaf.material.emissiveIntensity, {
+                        value: 1.5,
+                        duration: 0.5
+                    });
+
+                    // 预览图片
+                    const texture = selectedLeaf.userData.texture;
+                    if (texture && texture.image) {
+                        document.getElementById('preview-img').src = texture.image.src;
+                        document.getElementById('photo-modal').style.display = 'flex';
+                    } else {
+                        alert("照片预览暂时无法显示，已为你放大叶子～");
+                    }
+                }
+            }
+        }
+
+        // 窗口大小调整
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 更新雪花
+        function updateSnowflakes() {
+            if (isPaused) return;
+            snowflakes.forEach(snowflake => {
+                snowflake.position.y -= snowflake.userData.speed;
+                snowflake.position.x += Math.sin(Date.now() * 0.001 + snowflake.position.z) * snowflake.userData.sway;
+                snowflake.rotation.z += 0.01;
+
+                if (snowflake.position.y < -10) {
+                    snowflake.position.y = 30;
+                    snowflake.position.x = (Math.random() - 0.5) * 50;
+                    snowflake.position.z = (Math.random() - 0.5) * 50;
+                }
+            });
+        }
+
+        // 更新灯光
+        function updateLights() {
+            if (isPaused) return;
+            lights.forEach(light => {
+                if (Math.random() < 0.01) {
+                    gsap.to(light.material.emissiveIntensity, {
+                        value: Math.random() * 3,
+                        duration: 0.2
+                    });
+                }
+            });
+        }
+
+        // 动画循环
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!isPaused) {
+                updateSnowflakes();
+                updateLights();
+
+                if (christmasTree) {
+                    christmasTree.rotation.y += 0.005;
+                } else {
+                    leaves.forEach(leaf => {
+                        if (!leaf.userData.isClicked) {
+                            leaf.rotation.z += 0.01;
+                        }
+                    });
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('load', () => {
+            if (typeof THREE === 'undefined') {
+                document.getElementById('loading-tip').textContent = "Three.js加载失败，请刷新页面或使用Chrome/Edge浏览器";
+                return;
+            }
+            init();
+        });
+
+        // 防止移动端滚动
+        document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    </script>
+</body>
+</html>
